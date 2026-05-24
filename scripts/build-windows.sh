@@ -223,6 +223,7 @@ build_ffmpeg_windows() {
     -w /work \
     "$IMAGE" \
     bash -eo pipefail -c '
+      exec 2>&1
       set -eo pipefail
       export CC="${CC:-${FFBUILD_TOOLCHAIN}-gcc}"
       export CXX="${CXX:-${FFBUILD_TOOLCHAIN}-g++}"
