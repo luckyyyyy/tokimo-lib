@@ -149,7 +149,7 @@ install_brew_deps() {
   local packages=(
     pkg-config nasm yasm meson ninja cmake gpatch x264 x265 dav1d svt-av1
     libvpx aom opus libvorbis lame fdk-aac theora libsoxr libopenmpt libass
-    freetype fribidi harfbuzz fontconfig libbluray udfread webp zimg chromaprint srt
+    freetype fribidi harfbuzz fontconfig libbluray libudfread webp zimg chromaprint srt
     openjpeg jpeg-xl zvbi vulkan-headers vulkan-loader molten-vk libplacebo
     shaderc glslang
   )

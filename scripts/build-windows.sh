@@ -227,11 +227,12 @@ build_ffmpeg_windows() {
       : "${FFBUILD_PREFIX:?image must define FFBUILD_PREFIX}"
       : "${FFBUILD_TOOLCHAIN:?image must define FFBUILD_TOOLCHAIN}"
       : "${FFBUILD_TARGET_FLAGS:?image must define FFBUILD_TARGET_FLAGS}"
-      : "${CC:?image must define CC}"
-      : "${CXX:?image must define CXX}"
-      : "${AR:?image must define AR}"
-      : "${RANLIB:?image must define RANLIB}"
-      : "${NM:?image must define NM}"
+      CC="${CC:-${FFBUILD_TOOLCHAIN}-gcc}"
+      CXX="${CXX:-${FFBUILD_TOOLCHAIN}-g++}"
+      AR="${AR:-${FFBUILD_TOOLCHAIN}-ar}"
+      RANLIB="${RANLIB:-${FFBUILD_TOOLCHAIN}-ranlib}"
+      NM="${NM:-${FFBUILD_TOOLCHAIN}-nm}"
+      export CC CXX AR RANLIB NM
       : "${FDK_PREFIX:?must be set}"
 
       nproc_count="$(nproc)"
