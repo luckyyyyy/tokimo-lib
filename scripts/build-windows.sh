@@ -207,9 +207,6 @@ build_ffmpeg_windows() {
   docker pull "$IMAGE"
 
   log "Cross-building FFmpeg for Windows"
-  log "DEBUG: testing docker run..."
-  docker run --rm "$IMAGE" bash -c 'echo DOCKER_TEST_OK; id; echo CC=$CC' 2>&1 || true
-  log "DEBUG: docker test done, proceeding..."
   docker run --rm \
     -v "$SRC_DIR":/work/ffmpeg-src \
     -v "$FFMPEG_BUILD_DIR":/work/build \
@@ -224,6 +221,7 @@ build_ffmpeg_windows() {
     bash -eo pipefail -c '
       exec 2>&1
       set -eo pipefail
+      echo "DOCKER_START: CC=$CC FFBUILD_TOOLCHAIN=$FFBUILD_TOOLCHAIN"
       export CC="${CC:-${FFBUILD_TOOLCHAIN}-gcc}"
       export CXX="${CXX:-${FFBUILD_TOOLCHAIN}-g++}"
       export AR="${AR:-${FFBUILD_TOOLCHAIN}-ar}"
