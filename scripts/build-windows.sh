@@ -206,12 +206,8 @@ build_ffmpeg_windows() {
   log "Pulling $IMAGE"
   docker pull "$IMAGE"
 
-  if ! docker info -f '{{println .SecurityOptions}}' 2>/dev/null | grep -q rootless; then
-    uidargs=( -u "$(id -u):$(id -g)" )
-  fi
-
-  log "Cross-building FFmpeg for Windows (uidargs: ${uidargs[*]:-none})"
-  docker run --rm "${uidargs[@]}" \
+  log "Cross-building FFmpeg for Windows"
+  docker run --rm \
     -v "$SRC_DIR":/work/ffmpeg-src \
     -v "$FFMPEG_BUILD_DIR":/work/build \
     -v "$WINDOWS_PREFIX":/work/prefix \
