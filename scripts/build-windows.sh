@@ -265,14 +265,29 @@ build_ffmpeg_windows() {
         git checkout "$UDFREAD_REF" 2>&1
         # Generate a meson cross file from the BtbN toolchain env vars.
         CROSS_FILE=/work/build/udfread/cross.meson
-        echo "$CC" > /tmp/cc_test.txt
-        echo "DEBUG_TEST: $(cat /tmp/cc_test.txt)"
-        echo "[binaries]" > "$CROSS_FILE"
-        echo "c = '$(cat /tmp/cc_test.txt)'" >> "$CROSS_FILE"
-        echo "cpp = '${CXX}'" >> "$CROSS_FILE"
-        echo "ar = '${AR}'" >> "$CROSS_FILE"
-        echo "ranlib = '${RANLIB}'" >> "$CROSS_FILE"
-        echo "nm = '${NM}'" >> "$CROSS_FILE"
+        cat > "$CROSS_FILE" <<'XFILE'
+[binaries]
+c = __CCVAL__
+cpp = __CXXVAL__
+ar = __ARVAL__
+ranlib = __RANLIBVAL__
+nm = __NMVAL__
+strip = 'strip'
+
+[host_machine]
+system = 'windows'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
+
+[properties]
+needs_exe_wrapper = true
+XFILE
+        sed -i "s|__CCVAL__|'${CC}'|" "$CROSS_FILE"
+        sed -i "s|__CXXVAL__|'${CXX}'|" "$CROSS_FILE"
+        sed -i "s|__ARVAL__|'${AR}'|" "$CROSS_FILE"
+        sed -i "s|__RANLIBVAL__|'${RANLIB}'|" "$CROSS_FILE"
+        sed -i "s|__NMVAL__|'${NM}'|" "$CROSS_FILE"
         echo "strip = 'strip'" >> "$CROSS_FILE"
         echo "" >> "$CROSS_FILE"
         echo "[host_machine]" >> "$CROSS_FILE"
