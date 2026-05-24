@@ -118,6 +118,16 @@ resolve_fdk_aac_source() {
   [[ -n "$FDK_AAC_REF" ]] || die "missing fdk-aac.commit in $COMPONENTS_FILE"
 }
 
+resolve_udfread_source() {
+  local configured_url configured_ref
+
+  configured_url="$(toml_value udfread upstream "$COMPONENTS_FILE" || true)"
+  configured_ref="$(toml_value udfread commit "$COMPONENTS_FILE" || true)"
+  UDFREAD_GIT_URL="${UDFREAD_GIT_URL:-${configured_url:-https://code.videolan.org/videolan/libudfread.git}}"
+  UDFREAD_REF="${UDFREAD_REF:-$configured_ref}"
+  [[ -n "$UDFREAD_REF" ]] || die "missing udfread.commit in $COMPONENTS_FILE"
+}
+
 verify_libvips_windows_checksum() {
   local expected actual
 
@@ -207,6 +217,9 @@ build_ffmpeg_windows() {
     -v "$WINDOWS_PREFIX":/work/prefix \
     -e FDK_AAC_REF="$FDK_AAC_REF" \
     -e FDK_PREFIX=/work/build/fdk-aac-prefix \
+    -e UDFREAD_GIT_URL="$UDFREAD_GIT_URL" \
+    -e UDFREAD_REF="$UDFREAD_REF" \
+    -e UDFREAD_PREFIX=/work/build/udfread-prefix \
     -w /work \
     "$IMAGE" \
     bash -eo pipefail -c '
@@ -246,7 +259,52 @@ build_ffmpeg_windows() {
         make install >> /work/build/logs/fdk-aac-make.log 2>&1
       fi
 
-      export PKG_CONFIG_PATH="$FDK_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+      # Build libudfread (standalone static lib for tokimo-package-iso FFI).
+      UDFREAD_PREFIX=/work/build/udfread-prefix
+      if [[ ! -f "$UDFREAD_PREFIX/lib/libudfread.a" ]]; then
+        mkdir -p /work/build/udfread
+        if [[ ! -d /work/build/udfread/src/.git ]]; then
+          git clone "$UDFREAD_GIT_URL" /work/build/udfread/src \
+            > /work/build/logs/udfread-clone.log 2>&1
+        fi
+        cd /work/build/udfread/src
+        git fetch --tags origin > /work/build/logs/udfread-fetch.log 2>&1
+        git checkout "$UDFREAD_REF" > /work/build/logs/udfread-checkout.log 2>&1
+        # Generate a meson cross file from the BtbN toolchain env vars.
+        CROSS_FILE=/work/build/udfread/cross.meson
+        cat > "$CROSS_FILE" << CROSS_EOF
+[binaries]
+c = '${CC}'
+cpp = '${CXX}'
+ar = '${AR}'
+ranlib = '${RANLIB}'
+nm = '${NM}'
+strip = 'strip'
+
+[host_machine]
+system = 'windows'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
+
+[properties]
+needs_exe_wrapper = true
+CROSS_EOF
+        UDFREAD_BUILD_DIR=/work/build/udfread/build
+        mkdir -p "$UDFREAD_BUILD_DIR"
+        meson setup "$UDFREAD_BUILD_DIR" . \
+          --prefix="$UDFREAD_PREFIX" \
+          --cross-file="$CROSS_FILE" \
+          --default-library=static \
+          --buildtype=release \
+          > /work/build/logs/udfread-meson.log 2>&1
+        ninja -C "$UDFREAD_BUILD_DIR" -j"$nproc_count" \
+          > /work/build/logs/udfread-ninja.log 2>&1
+        ninja -C "$UDFREAD_BUILD_DIR" install \
+          >> /work/build/logs/udfread-ninja.log 2>&1
+      fi
+
+      export PKG_CONFIG_PATH="$FDK_PREFIX/lib/pkgconfig:$UDFREAD_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
       rm -rf /work/build/ffmpeg
       mkdir -p /work/build/ffmpeg
       cd /work/build/ffmpeg
@@ -254,9 +312,9 @@ build_ffmpeg_windows() {
       configure_flags=(
         --prefix=/work/prefix
         --pkg-config-flags=--static
-        --extra-cflags="-I$FFBUILD_PREFIX/include -I$FDK_PREFIX/include"
-        --extra-cxxflags="-I$FFBUILD_PREFIX/include -I$FDK_PREFIX/include"
-        --extra-ldflags="-L$FFBUILD_PREFIX/lib -L$FDK_PREFIX/lib -pthread"
+        --extra-cflags="-I$FFBUILD_PREFIX/include -I$FDK_PREFIX/include -I$UDFREAD_PREFIX/include"
+        --extra-cxxflags="-I$FFBUILD_PREFIX/include -I$FDK_PREFIX/include -I$UDFREAD_PREFIX/include"
+        --extra-ldflags="-L$FFBUILD_PREFIX/lib -L$FDK_PREFIX/lib -L$UDFREAD_PREFIX/lib -pthread"
         --extra-libs="-lgomp"
         --cc="$CC" --cxx="$CXX" --ar="$AR" --ranlib="$RANLIB" --nm="$NM"
         --enable-gpl
@@ -485,6 +543,21 @@ relocate_ffmpeg_import_libs() {
   done
 }
 
+# Rename cross-compiled static libs to MSVC naming convention.
+# meson/cmake cross-builds produce libfoo.a; MSVC link.exe expects foo.lib.
+normalize_static_libs() {
+  local a_file lib_name
+
+  for a_file in "$INSTALL_DIR"/lib/lib*.a; do
+    [[ -f "$a_file" ]] || continue
+    lib_name="$(basename "$a_file")"
+    lib_name="${lib_name#lib}"        # strip "lib" prefix
+    lib_name="${lib_name%.a}.lib"     # replace .a with .lib
+    [[ -f "$INSTALL_DIR/lib/$lib_name" ]] && continue  # don't overwrite existing .lib
+    mv -- "$a_file" "$INSTALL_DIR/lib/$lib_name"
+  done
+}
+
 bundle_install_tree() {
   rm -rf -- "$INSTALL_DIR/bin" "$INSTALL_DIR/lib" "$INSTALL_DIR/include" "$INSTALL_DIR/META.txt" "$TARBALL"
   mkdir -p -- "$INSTALL_DIR" "$INSTALL_DIR/bin" "$INSTALL_DIR/lib" "$INSTALL_DIR/include"
@@ -492,6 +565,7 @@ bundle_install_tree() {
   copy_prefix_dir_to_install lib
   copy_prefix_dir_to_install include
   relocate_ffmpeg_import_libs
+  normalize_static_libs
   assert_unique_basenames
   assert_unique_glib_family
   write_meta
@@ -505,6 +579,7 @@ main() {
   resolve_ffmpeg_source
   resolve_libvips_source
   resolve_fdk_aac_source
+  resolve_udfread_source
 
   log "Using FFmpeg source $FFMPEG_GIT_URL ($FFMPEG_REF)"
   sync_git_repo "$FFMPEG_GIT_URL" "$FFMPEG_REF" "$SRC_DIR"
