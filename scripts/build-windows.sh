@@ -211,11 +211,7 @@ build_ffmpeg_windows() {
   fi
 
   log "Cross-building FFmpeg for Windows"
-  log "DEBUG: uidargs=${uidargs[*]:-<empty>}"
-  log "DEBUG: FDK_AAC_REF=$FDK_AAC_REF"
-  log "DEBUG: UDFREAD_GIT_URL=$UDFREAD_GIT_URL"
-  log "DEBUG: UDFREAD_REF=$UDFREAD_REF"
-  docker run --rm "${uidargs[@]}" \
+  docker run --rm ${uidargs[@]+"${uidargs[@]}"} \
     -v "$SRC_DIR":/work/ffmpeg-src \
     -v "$FFMPEG_BUILD_DIR":/work/build \
     -v "$WINDOWS_PREFIX":/work/prefix \
@@ -228,23 +224,11 @@ build_ffmpeg_windows() {
     "$IMAGE" \
     bash -eo pipefail -c '
       set -eo pipefail
-      trap "echo 'DOCKER_TRAP: script failed at line \$LINENO' >&2" ERR
-      echo "DEBUG_DOCKER: FFBUILD_PREFIX=${FFBUILD_PREFIX:-<unset>}"
-      echo "DEBUG_DOCKER: FFBUILD_TOOLCHAIN=${FFBUILD_TOOLCHAIN:-<unset>}"
-      echo "DEBUG_DOCKER: CC=${CC:-<unset>}"
-      echo "DEBUG_DOCKER: FDK_PREFIX=${FDK_PREFIX:-<unset>}"
-      echo "DEBUG_DOCKER: UDFREAD_GIT_URL=${UDFREAD_GIT_URL:-<unset>}"
-      # BtbN image may not export CC/CXX/etc as env vars; derive from toolchain prefix.
       export CC="${CC:-${FFBUILD_TOOLCHAIN}-gcc}"
       export CXX="${CXX:-${FFBUILD_TOOLCHAIN}-g++}"
       export AR="${AR:-${FFBUILD_TOOLCHAIN}-ar}"
       export RANLIB="${RANLIB:-${FFBUILD_TOOLCHAIN}-ranlib}"
       export NM="${NM:-${FFBUILD_TOOLCHAIN}-nm}"
-      echo "DEBUG_DOCKER: CC after fallback=$CC"
-      [[ -n "${FFBUILD_PREFIX:-}" ]] || { echo "FFBUILD_PREFIX not set" >&2; exit 1; }
-      [[ -n "${FFBUILD_TOOLCHAIN:-}" ]] || { echo "FFBUILD_TOOLCHAIN not set" >&2; exit 1; }
-      [[ -n "${FFBUILD_TARGET_FLAGS:-}" ]] || { echo "FFBUILD_TARGET_FLAGS not set" >&2; exit 1; }
-      [[ -n "${FDK_PREFIX:-}" ]] || { echo "FDK_PREFIX not set" >&2; exit 1; }
 
       nproc_count="$(nproc)"
       mkdir -p /work/build/logs
