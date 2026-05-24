@@ -263,14 +263,16 @@ build_ffmpeg_windows() {
       # Build libudfread (standalone static lib for tokimo-package-iso FFI).
       UDFREAD_PREFIX=/work/build/udfread-prefix
       if [[ ! -f "$UDFREAD_PREFIX/lib/libudfread.a" ]]; then
+        echo "DOCKER_STEP: cloning udfread from $UDFREAD_GIT_URL"
         mkdir -p /work/build/udfread
         if [[ ! -d /work/build/udfread/src/.git ]]; then
-          git clone "$UDFREAD_GIT_URL" /work/build/udfread/src \
-            > /work/build/logs/udfread-clone.log 2>&1
+          git clone "$UDFREAD_GIT_URL" /work/build/udfread/src 2>&1
         fi
+        echo "DOCKER_STEP: checking out $UDFREAD_REF"
         cd /work/build/udfread/src
         git fetch --tags origin > /work/build/logs/udfread-fetch.log 2>&1
-        git checkout "$UDFREAD_REF" > /work/build/logs/udfread-checkout.log 2>&1
+        git checkout "$UDFREAD_REF" 2>&1
+        echo "DOCKER_STEP: udfread checked out, generating cross file"
         # Generate a meson cross file from the BtbN toolchain env vars.
         CROSS_FILE=/work/build/udfread/cross.meson
         printf '%s\n' \
@@ -293,16 +295,16 @@ build_ffmpeg_windows() {
           > "$CROSS_FILE"
         UDFREAD_BUILD_DIR=/work/build/udfread/build
         mkdir -p "$UDFREAD_BUILD_DIR"
+        echo "DOCKER_STEP: running meson setup"
         meson setup "$UDFREAD_BUILD_DIR" . \
           --prefix="$UDFREAD_PREFIX" \
           --cross-file="$CROSS_FILE" \
           --default-library=static \
-          --buildtype=release \
-          > /work/build/logs/udfread-meson.log 2>&1
-        ninja -C "$UDFREAD_BUILD_DIR" -j"$nproc_count" \
-          > /work/build/logs/udfread-ninja.log 2>&1
-        ninja -C "$UDFREAD_BUILD_DIR" install \
-          >> /work/build/logs/udfread-ninja.log 2>&1
+          --buildtype=release 2>&1
+        echo "DOCKER_STEP: running ninja build"
+        ninja -C "$UDFREAD_BUILD_DIR" -j"$nproc_count" 2>&1
+        echo "DOCKER_STEP: running ninja install"
+        ninja -C "$UDFREAD_BUILD_DIR" install 2>&1
       fi
 
       echo "DOCKER_STEP: udfread build done"
