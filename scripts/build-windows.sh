@@ -266,25 +266,26 @@ build_ffmpeg_windows() {
         # Generate a meson cross file from the BtbN toolchain env vars.
         CROSS_FILE=/work/build/udfread/cross.meson
         _cc="$CC" _cxx="$CXX" _ar="$AR" _ranlib="$RANLIB" _nm="$NM"
-        echo "DEBUG_VARS: _cc=$_cc _cxx=$_cxx _ar=$_ar"
-        {
-          printf '[binaries]\n'
-          printf "c = '%s'\n" "$_cc"
-          printf "cpp = '%s'\n" "$_cxx"
-          printf "ar = '%s'\n" "$_ar"
-          printf "ranlib = '%s'\n" "$_ranlib"
-          printf "nm = '%s'\n" "$_nm"
-          printf "strip = 'strip'\n"
-          printf '\n'
-          printf '[host_machine]\n'
-          printf "system = 'windows'\n"
-          printf "cpu_family = 'x86_64'\n"
-          printf "cpu = 'x86_64'\n"
-          printf "endian = 'little'\n"
-          printf '\n'
-          printf '[properties]\n'
-          printf "needs_exe_wrapper = true\n"
-        } > "$CROSS_FILE"
+        python3 -c "
+import sys
+cc, cxx, ar, ranlib, nm = sys.argv[1:6]
+print(f'''[binaries]
+c = '{cc}'
+cpp = '{cxx}'
+ar = '{ar}'
+ranlib = '{ranlib}'
+nm = '{nm}'
+strip = 'strip'
+
+[host_machine]
+system = 'windows'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
+
+[properties]
+needs_exe_wrapper = true''', file=open('$CROSS_FILE', 'w'))
+" "$_cc" "$_cxx" "$_ar" "$_ranlib" "$_nm"
         UDFREAD_BUILD_DIR=/work/build/udfread/build
         mkdir -p "$UDFREAD_BUILD_DIR"
         echo "DOCKER_STEP: cross file content:"
