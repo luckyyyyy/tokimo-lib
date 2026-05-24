@@ -265,25 +265,8 @@ build_ffmpeg_windows() {
         git checkout "$UDFREAD_REF" 2>&1
         # Generate a meson cross file from the BtbN toolchain env vars.
         CROSS_FILE=/work/build/udfread/cross.meson
-        echo "DEBUG_CROSS: CC=$CC CXX=$CXX AR=$AR"
-        {
-          echo '[binaries]'
-          echo "c = '${CC}'"
-          echo "cpp = '${CXX}'"
-          echo "ar = '${AR}'"
-          echo "ranlib = '${RANLIB}'"
-          echo "nm = '${NM}'"
-          echo "strip = 'strip'"
-          echo ''
-          echo '[host_machine]'
-          echo "system = 'windows'"
-          echo "cpu_family = 'x86_64'"
-          echo "cpu = 'x86_64'"
-          echo "endian = 'little'"
-          echo ''
-          echo '[properties]'
-          echo "needs_exe_wrapper = true"
-        } > "$CROSS_FILE"
+        printf '[binaries]\nc = %s\ncpp = %s\nar = %s\nranlib = %s\nnm = %s\nstrip = strip\n\n[host_machine]\nsystem = windows\ncpu_family = x86_64\ncpu = x86_64\nendian = little\n\n[properties]\nneeds_exe_wrapper = true\n' \
+          "'${CC}'" "'${CXX}'" "'${AR}'" "'${RANLIB}'" "'${NM}'" > "$CROSS_FILE"
         UDFREAD_BUILD_DIR=/work/build/udfread/build
         mkdir -p "$UDFREAD_BUILD_DIR"
         echo "DOCKER_STEP: cross file content:"
