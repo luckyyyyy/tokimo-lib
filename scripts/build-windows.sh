@@ -258,8 +258,8 @@ build_ffmpeg_windows() {
       fi
 
       echo "DOCKER_STEP: fdk-aac done, starting udfread build"
-      which meson 2>&1 || echo "meson not found"
-      which ninja 2>&1 || echo "ninja not found"
+      command -v meson && echo "meson found" || echo "meson NOT found"
+      command -v ninja && echo "ninja found" || echo "ninja NOT found"
       # Build libudfread (standalone static lib for tokimo-package-iso FFI).
       UDFREAD_PREFIX=/work/build/udfread-prefix
       if [[ ! -f "$UDFREAD_PREFIX/lib/libudfread.a" ]]; then
