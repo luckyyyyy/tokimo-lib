@@ -228,6 +228,7 @@ build_ffmpeg_windows() {
     "$IMAGE" \
     bash -eo pipefail -c '
       set -eo pipefail
+      trap "echo 'DOCKER_TRAP: script failed at line \$LINENO' >&2" ERR
       echo "DEBUG_DOCKER: FFBUILD_PREFIX=${FFBUILD_PREFIX:-<unset>}"
       echo "DEBUG_DOCKER: FFBUILD_TOOLCHAIN=${FFBUILD_TOOLCHAIN:-<unset>}"
       echo "DEBUG_DOCKER: CC=${CC:-<unset>}"
