@@ -222,6 +222,7 @@ build_ffmpeg_windows() {
       exec 2>&1
       set -eo pipefail
       export CC="${CC:-${FFBUILD_TOOLCHAIN}-gcc}"
+      echo "DEBUG: CC=$CC FFBUILD_TOOLCHAIN=$FFBUILD_TOOLCHAIN"
       export CXX="${CXX:-${FFBUILD_TOOLCHAIN}-g++}"
       export AR="${AR:-${FFBUILD_TOOLCHAIN}-ar}"
       export RANLIB="${RANLIB:-${FFBUILD_TOOLCHAIN}-ranlib}"
