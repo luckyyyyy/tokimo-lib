@@ -227,12 +227,12 @@ build_ffmpeg_windows() {
       : "${FFBUILD_PREFIX:?image must define FFBUILD_PREFIX}"
       : "${FFBUILD_TOOLCHAIN:?image must define FFBUILD_TOOLCHAIN}"
       : "${FFBUILD_TARGET_FLAGS:?image must define FFBUILD_TARGET_FLAGS}"
-      CC="${CC:-${FFBUILD_TOOLCHAIN}-gcc}"
-      CXX="${CXX:-${FFBUILD_TOOLCHAIN}-g++}"
-      AR="${AR:-${FFBUILD_TOOLCHAIN}-ar}"
-      RANLIB="${RANLIB:-${FFBUILD_TOOLCHAIN}-ranlib}"
-      NM="${NM:-${FFBUILD_TOOLCHAIN}-nm}"
-      export CC CXX AR RANLIB NM
+      # BtbN image may not export CC/CXX/etc as env vars; derive from toolchain prefix.
+      export CC="${CC:-${FFBUILD_TOOLCHAIN}-gcc}"
+      export CXX="${CXX:-${FFBUILD_TOOLCHAIN}-g++}"
+      export AR="${AR:-${FFBUILD_TOOLCHAIN}-ar}"
+      export RANLIB="${RANLIB:-${FFBUILD_TOOLCHAIN}-ranlib}"
+      export NM="${NM:-${FFBUILD_TOOLCHAIN}-nm}"
       : "${FDK_PREFIX:?must be set}"
 
       nproc_count="$(nproc)"
