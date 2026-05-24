@@ -221,11 +221,6 @@ build_ffmpeg_windows() {
     bash -eo pipefail -c '
       exec 2>&1
       set -eo pipefail
-      echo "DOCKER_START: CC=$CC FFBUILD_TOOLCHAIN=$FFBUILD_TOOLCHAIN"
-      echo "DOCKER_START: FDK_PREFIX=$FDK_PREFIX"
-      echo "DOCKER_START: UDFREAD_GIT_URL=$UDFREAD_GIT_URL"
-      echo "DOCKER_START: pwd=$(pwd)"
-      ls /work/ 2>&1 || echo "ls /work failed"
       export CC="${CC:-${FFBUILD_TOOLCHAIN}-gcc}"
       export CXX="${CXX:-${FFBUILD_TOOLCHAIN}-g++}"
       export AR="${AR:-${FFBUILD_TOOLCHAIN}-ar}"
@@ -257,59 +252,49 @@ build_ffmpeg_windows() {
         make install >> /work/build/logs/fdk-aac-make.log 2>&1
       fi
 
-      echo "DOCKER_STEP: fdk-aac done, starting udfread build"
-      command -v meson && echo "meson found" || echo "meson NOT found"
-      command -v ninja && echo "ninja found" || echo "ninja NOT found"
       # Build libudfread (standalone static lib for tokimo-package-iso FFI).
       UDFREAD_PREFIX=/work/build/udfread-prefix
       if [[ ! -f "$UDFREAD_PREFIX/lib/libudfread.a" ]]; then
-        echo "DOCKER_STEP: cloning udfread from $UDFREAD_GIT_URL"
         mkdir -p /work/build/udfread
         if [[ ! -d /work/build/udfread/src/.git ]]; then
           git clone "$UDFREAD_GIT_URL" /work/build/udfread/src 2>&1
         fi
-        echo "DOCKER_STEP: checking out $UDFREAD_REF"
         cd /work/build/udfread/src
         git fetch --tags origin > /work/build/logs/udfread-fetch.log 2>&1
         git checkout "$UDFREAD_REF" 2>&1
-        echo "DOCKER_STEP: udfread checked out, generating cross file"
         # Generate a meson cross file from the BtbN toolchain env vars.
         CROSS_FILE=/work/build/udfread/cross.meson
-        printf '%s\n' \
-          "[binaries]" \
-          "c = '${CC}'" \
-          "cpp = '${CXX}'" \
-          "ar = '${AR}'" \
-          "ranlib = '${RANLIB}'" \
-          "nm = '${NM}'" \
-          "strip = 'strip'" \
-          "" \
-          "[host_machine]" \
-          "system = 'windows'" \
-          "cpu_family = 'x86_64'" \
-          "cpu = 'x86_64'" \
-          "endian = 'little'" \
-          "" \
-          "[properties]" \
-          "needs_exe_wrapper = true" \
-          > "$CROSS_FILE"
+        cat > "$CROSS_FILE" <<EOF_CROSS
+[binaries]
+c = '${CC}'
+cpp = '${CXX}'
+ar = '${AR}'
+ranlib = '${RANLIB}'
+nm = '${NM}'
+strip = 'strip'
+
+[host_machine]
+system = 'windows'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
+
+[properties]
+needs_exe_wrapper = true
+EOF_CROSS
         UDFREAD_BUILD_DIR=/work/build/udfread/build
         mkdir -p "$UDFREAD_BUILD_DIR"
         echo "DOCKER_STEP: cross file content:"
         cat "$CROSS_FILE"
-        echo "DOCKER_STEP: running meson setup"
         meson setup "$UDFREAD_BUILD_DIR" . \
           --prefix="$UDFREAD_PREFIX" \
           --cross-file="$CROSS_FILE" \
           --default-library=static \
           --buildtype=release 2>&1
-        echo "DOCKER_STEP: running ninja build"
         ninja -C "$UDFREAD_BUILD_DIR" -j"$nproc_count" 2>&1
-        echo "DOCKER_STEP: running ninja install"
         ninja -C "$UDFREAD_BUILD_DIR" install 2>&1
       fi
 
-      echo "DOCKER_STEP: udfread build done"
       export PKG_CONFIG_PATH="$FDK_PREFIX/lib/pkgconfig:$UDFREAD_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
       rm -rf /work/build/ffmpeg
       mkdir -p /work/build/ffmpeg
@@ -358,7 +343,6 @@ build_ffmpeg_windows() {
       # shellcheck disable=SC2206  # FFBUILD_TARGET_FLAGS is intentionally word-split.
       target_flags=( $FFBUILD_TARGET_FLAGS )
 
-      echo "DOCKER_STEP: starting FFmpeg configure"
       if ! /work/ffmpeg-src/configure "${target_flags[@]}" "${configure_flags[@]}" \
           > /work/build/logs/ffmpeg-configure.log 2>&1; then
         tail -80 /work/build/logs/ffmpeg-configure.log >&2 || true
