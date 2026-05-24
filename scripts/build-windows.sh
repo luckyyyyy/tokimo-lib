@@ -257,6 +257,9 @@ build_ffmpeg_windows() {
         make install >> /work/build/logs/fdk-aac-make.log 2>&1
       fi
 
+      echo "DOCKER_STEP: fdk-aac done, starting udfread build"
+      which meson 2>&1 || echo "meson not found"
+      which ninja 2>&1 || echo "ninja not found"
       # Build libudfread (standalone static lib for tokimo-package-iso FFI).
       UDFREAD_PREFIX=/work/build/udfread-prefix
       if [[ ! -f "$UDFREAD_PREFIX/lib/libudfread.a" ]]; then
@@ -302,6 +305,7 @@ build_ffmpeg_windows() {
           >> /work/build/logs/udfread-ninja.log 2>&1
       fi
 
+      echo "DOCKER_STEP: udfread build done"
       export PKG_CONFIG_PATH="$FDK_PREFIX/lib/pkgconfig:$UDFREAD_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
       rm -rf /work/build/ffmpeg
       mkdir -p /work/build/ffmpeg
@@ -350,6 +354,7 @@ build_ffmpeg_windows() {
       # shellcheck disable=SC2206  # FFBUILD_TARGET_FLAGS is intentionally word-split.
       target_flags=( $FFBUILD_TARGET_FLAGS )
 
+      echo "DOCKER_STEP: starting FFmpeg configure"
       if ! /work/ffmpeg-src/configure "${target_flags[@]}" "${configure_flags[@]}" \
           > /work/build/logs/ffmpeg-configure.log 2>&1; then
         tail -80 /work/build/logs/ffmpeg-configure.log >&2 || true
