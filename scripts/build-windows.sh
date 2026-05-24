@@ -222,6 +222,10 @@ build_ffmpeg_windows() {
       exec 2>&1
       set -eo pipefail
       echo "DOCKER_START: CC=$CC FFBUILD_TOOLCHAIN=$FFBUILD_TOOLCHAIN"
+      echo "DOCKER_START: FDK_PREFIX=$FDK_PREFIX"
+      echo "DOCKER_START: UDFREAD_GIT_URL=$UDFREAD_GIT_URL"
+      echo "DOCKER_START: pwd=$(pwd)"
+      ls /work/ 2>&1 || echo "ls /work failed"
       export CC="${CC:-${FFBUILD_TOOLCHAIN}-gcc}"
       export CXX="${CXX:-${FFBUILD_TOOLCHAIN}-g++}"
       export AR="${AR:-${FFBUILD_TOOLCHAIN}-ar}"
