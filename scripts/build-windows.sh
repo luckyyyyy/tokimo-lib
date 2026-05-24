@@ -295,6 +295,8 @@ build_ffmpeg_windows() {
           > "$CROSS_FILE"
         UDFREAD_BUILD_DIR=/work/build/udfread/build
         mkdir -p "$UDFREAD_BUILD_DIR"
+        echo "DOCKER_STEP: cross file content:"
+        cat "$CROSS_FILE"
         echo "DOCKER_STEP: running meson setup"
         meson setup "$UDFREAD_BUILD_DIR" . \
           --prefix="$UDFREAD_PREFIX" \
