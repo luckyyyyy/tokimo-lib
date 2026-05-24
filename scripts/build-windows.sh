@@ -210,8 +210,8 @@ build_ffmpeg_windows() {
     uidargs=( -u "$(id -u):$(id -g)" )
   fi
 
-  log "Cross-building FFmpeg for Windows"
-  docker run --rm ${uidargs[@]+"${uidargs[@]}"} \
+  log "Cross-building FFmpeg for Windows (uidargs: ${uidargs[*]:-none})"
+  docker run --rm "${uidargs[@]}" \
     -v "$SRC_DIR":/work/ffmpeg-src \
     -v "$FFMPEG_BUILD_DIR":/work/build \
     -v "$WINDOWS_PREFIX":/work/prefix \
