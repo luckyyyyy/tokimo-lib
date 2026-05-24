@@ -265,23 +265,7 @@ build_ffmpeg_windows() {
         git checkout "$UDFREAD_REF" 2>&1
         # Generate a meson cross file from the BtbN toolchain env vars.
         CROSS_FILE=/work/build/udfread/cross.meson
-        awk -v cc="$CC" -v cxx="$CXX" -v ar="$AR" -v ranlib="$RANLIB" -v nm="$NM" \
-          'BEGIN {
-             printf "[binaries]\n"
-             printf "c = '\''%s'\''\n", cc
-             printf "cpp = '\''%s'\''\n", cxx
-             printf "ar = '\''%s'\''\n", ar
-             printf "ranlib = '\''%s'\''\n", ranlib
-             printf "nm = '\''%s'\''\n", nm
-             printf "strip = '\''strip'\''\n\n"
-             printf "[host_machine]\n"
-             printf "system = '\''windows'\''\n"
-             printf "cpu_family = '\''x86_64'\''\n"
-             printf "cpu = '\''x86_64'\''\n"
-             printf "endian = '\''little'\''\n\n"
-             printf "[properties]\n"
-             printf "needs_exe_wrapper = true\n"
-           }' > "$CROSS_FILE"
+        awk -v cc="$CC" -v cxx="$CXX" -v ar="$AR" -v ranlib="$RANLIB" -v nm="$NM" 'BEGIN { printf "[binaries]\nc = \x27%s\x27\ncpp = \x27%s\x27\nar = \x27%s\x27\nranlib = \x27%s\x27\nnm = \x27%s\x27\nstrip = \x27strip\x27\n\n[host_machine]\nsystem = \x27windows\x27\ncpu_family = \x27x86_64\x27\ncpu = \x27x86_64\x27\nendian = \x27little\x27\n\n[properties]\nneeds_exe_wrapper = true\n", cc, cxx, ar, ranlib, nm }' > "$CROSS_FILE"
         echo "strip = 'strip'" >> "$CROSS_FILE"
         echo "" >> "$CROSS_FILE"
         echo "[host_machine]" >> "$CROSS_FILE"
