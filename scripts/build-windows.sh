@@ -223,17 +223,17 @@ build_ffmpeg_windows() {
     -w /work \
     "$IMAGE" \
     bash -eo pipefail -c '
-      set -euo pipefail
-      : "${FFBUILD_PREFIX:?image must define FFBUILD_PREFIX}"
-      : "${FFBUILD_TOOLCHAIN:?image must define FFBUILD_TOOLCHAIN}"
-      : "${FFBUILD_TARGET_FLAGS:?image must define FFBUILD_TARGET_FLAGS}"
+      set -eo pipefail
       # BtbN image may not export CC/CXX/etc as env vars; derive from toolchain prefix.
       export CC="${CC:-${FFBUILD_TOOLCHAIN}-gcc}"
       export CXX="${CXX:-${FFBUILD_TOOLCHAIN}-g++}"
       export AR="${AR:-${FFBUILD_TOOLCHAIN}-ar}"
       export RANLIB="${RANLIB:-${FFBUILD_TOOLCHAIN}-ranlib}"
       export NM="${NM:-${FFBUILD_TOOLCHAIN}-nm}"
-      : "${FDK_PREFIX:?must be set}"
+      [[ -n "${FFBUILD_PREFIX:-}" ]] || { echo "FFBUILD_PREFIX not set" >&2; exit 1; }
+      [[ -n "${FFBUILD_TOOLCHAIN:-}" ]] || { echo "FFBUILD_TOOLCHAIN not set" >&2; exit 1; }
+      [[ -n "${FFBUILD_TARGET_FLAGS:-}" ]] || { echo "FFBUILD_TARGET_FLAGS not set" >&2; exit 1; }
+      [[ -n "${FDK_PREFIX:-}" ]] || { echo "FDK_PREFIX not set" >&2; exit 1; }
 
       nproc_count="$(nproc)"
       mkdir -p /work/build/logs
