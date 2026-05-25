@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -eo pipefail
+set -euo pipefail
 IFS=$'\n\t'
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -201,75 +201,61 @@ apply_debian_patches() {
 
 build_ffmpeg_windows() {
   local uidargs=()
+  local docker_script="$BUILD_ROOT/docker-build.sh"
 
   mkdir -p "$FFMPEG_BUILD_DIR" "$WINDOWS_PREFIX"
   log "Pulling $IMAGE"
   docker pull "$IMAGE"
 
-  log "Cross-building FFmpeg for Windows"
-  docker run --rm \
-    -v "$SRC_DIR":/work/ffmpeg-src \
-    -v "$FFMPEG_BUILD_DIR":/work/build \
-    -v "$WINDOWS_PREFIX":/work/prefix \
-    -e FDK_AAC_REF="$FDK_AAC_REF" \
-    -e FDK_PREFIX=/work/build/fdk-aac-prefix \
-    -e UDFREAD_GIT_URL="$UDFREAD_GIT_URL" \
-    -e UDFREAD_REF="$UDFREAD_REF" \
-    -e UDFREAD_PREFIX=/work/build/udfread-prefix \
-    -w /work \
-    "$IMAGE" \
-    bash -eo pipefail -c '
-      exec 2>&1
-      set -eo pipefail
-      export CC="${CC:-${FFBUILD_TOOLCHAIN}-gcc}"
-      echo "DEBUG: CC=$CC FFBUILD_TOOLCHAIN=$FFBUILD_TOOLCHAIN"
-      export CXX="${CXX:-${FFBUILD_TOOLCHAIN}-g++}"
-      export AR="${AR:-${FFBUILD_TOOLCHAIN}-ar}"
-      export RANLIB="${RANLIB:-${FFBUILD_TOOLCHAIN}-ranlib}"
-      export NM="${NM:-${FFBUILD_TOOLCHAIN}-nm}"
+  # Write the Docker build script to a file to avoid single-quote
+  # escaping issues with bash -c '...' containing heredocs.
+  cat > "$docker_script" <<'OUTER_EOF'
+#!/usr/bin/env bash
+exec 2>&1
+set -eo pipefail
+export CC="${CC:-${FFBUILD_TOOLCHAIN}-gcc}"
+export CXX="${CXX:-${FFBUILD_TOOLCHAIN}-g++}"
+export AR="${AR:-${FFBUILD_TOOLCHAIN}-ar}"
+export RANLIB="${RANLIB:-${FFBUILD_TOOLCHAIN}-ranlib}"
+export NM="${NM:-${FFBUILD_TOOLCHAIN}-nm}"
 
-      nproc_count="$(nproc)"
-      mkdir -p /work/build/logs
+nproc_count="$(nproc)"
+mkdir -p /work/build/logs
 
-      if [[ ! -f "$FDK_PREFIX/lib/libfdk-aac.a" ]]; then
-        mkdir -p /work/build/fdk-aac
-        if [[ ! -d /work/build/fdk-aac/src/.git ]]; then
-          git clone --filter=blob:none https://github.com/mstorsjo/fdk-aac.git /work/build/fdk-aac/src \
-            > /work/build/logs/fdk-aac-clone.log 2>&1
-        fi
-        cd /work/build/fdk-aac/src
-        git fetch --tags origin > /work/build/logs/fdk-aac-fetch.log 2>&1
-        git checkout "$FDK_AAC_REF" > /work/build/logs/fdk-aac-checkout.log 2>&1
-        ./autogen.sh > /work/build/logs/fdk-aac-autogen.log 2>&1
-        ./configure \
-          --prefix="$FDK_PREFIX" \
-          --host="$FFBUILD_TOOLCHAIN" \
-          --disable-shared \
-          --enable-static \
-          --with-pic \
-          --disable-example \
-          > /work/build/logs/fdk-aac-configure.log 2>&1
-        make -j"$nproc_count" > /work/build/logs/fdk-aac-make.log 2>&1
-        make install >> /work/build/logs/fdk-aac-make.log 2>&1
-      fi
+if [[ ! -f "$FDK_PREFIX/lib/libfdk-aac.a" ]]; then
+  mkdir -p /work/build/fdk-aac
+  if [[ ! -d /work/build/fdk-aac/src/.git ]]; then
+    git clone --filter=blob:none https://github.com/mstorsjo/fdk-aac.git /work/build/fdk-aac/src \
+      > /work/build/logs/fdk-aac-clone.log 2>&1
+  fi
+  cd /work/build/fdk-aac/src
+  git fetch --tags origin > /work/build/logs/fdk-aac-fetch.log 2>&1
+  git checkout "$FDK_AAC_REF" > /work/build/logs/fdk-aac-checkout.log 2>&1
+  ./autogen.sh > /work/build/logs/fdk-aac-autogen.log 2>&1
+  ./configure \
+    --prefix="$FDK_PREFIX" \
+    --host="$FFBUILD_TOOLCHAIN" \
+    --disable-shared \
+    --enable-static \
+    --with-pic \
+    --disable-example \
+    > /work/build/logs/fdk-aac-configure.log 2>&1
+  make -j"$nproc_count" > /work/build/logs/fdk-aac-make.log 2>&1
+  make install >> /work/build/logs/fdk-aac-make.log 2>&1
+fi
 
-      # Build libudfread (standalone static lib for tokimo-package-iso FFI).
-      UDFREAD_PREFIX=/work/build/udfread-prefix
-      if [[ ! -f "$UDFREAD_PREFIX/lib/libudfread.a" ]]; then
-        mkdir -p /work/build/udfread
-        if [[ ! -d /work/build/udfread/src/.git ]]; then
-          git clone "$UDFREAD_GIT_URL" /work/build/udfread/src 2>&1
-        fi
-        cd /work/build/udfread/src
-        git fetch --tags origin > /work/build/logs/udfread-fetch.log 2>&1
-        git checkout "$UDFREAD_REF" 2>&1
-        # Generate a meson cross file from the BtbN toolchain env vars.
-        CROSS_FILE=/work/build/udfread/cross.meson
-        echo "DEBUG_BEFORE: CC=$CC file=$(ls -la "$CROSS_FILE" 2>&1 || echo missing)"
-        rm -f "$CROSS_FILE"
-        echo "DEBUG_AFTER_RM: $(ls -la "$CROSS_FILE" 2>&1 || echo deleted)"
-        export CC CXX AR RANLIB NM
-        envsubst > "$CROSS_FILE" <<'ENDFILE'
+# Build libudfread (standalone static lib for tokimo-package-iso FFI).
+UDFREAD_PREFIX=/work/build/udfread-prefix
+if [[ ! -f "$UDFREAD_PREFIX/lib/libudfread.a" ]]; then
+  mkdir -p /work/build/udfread
+  if [[ ! -d /work/build/udfread/src/.git ]]; then
+    git clone "$UDFREAD_GIT_URL" /work/build/udfread/src 2>&1
+  fi
+  cd /work/build/udfread/src
+  git fetch --tags origin > /work/build/logs/udfread-fetch.log 2>&1
+  git checkout "$UDFREAD_REF" 2>&1
+  CROSS_FILE=/work/build/udfread/cross.meson
+  cat > "$CROSS_FILE" <<EOF
 [binaries]
 c = '${CC}'
 cpp = '${CXX}'
@@ -286,87 +272,90 @@ endian = 'little'
 
 [properties]
 needs_exe_wrapper = true
-ENDFILE
-        echo "strip = 'strip'" >> "$CROSS_FILE"
-        echo "" >> "$CROSS_FILE"
-        echo "[host_machine]" >> "$CROSS_FILE"
-        echo "system = 'windows'" >> "$CROSS_FILE"
-        echo "cpu_family = 'x86_64'" >> "$CROSS_FILE"
-        echo "cpu = 'x86_64'" >> "$CROSS_FILE"
-        echo "endian = 'little'" >> "$CROSS_FILE"
-        echo "" >> "$CROSS_FILE"
-        echo "[properties]" >> "$CROSS_FILE"
-        echo "needs_exe_wrapper = true" >> "$CROSS_FILE"
-        UDFREAD_BUILD_DIR=/work/build/udfread/build
-        mkdir -p "$UDFREAD_BUILD_DIR"
-        echo "DOCKER_STEP: cross file content:"
-        cat "$CROSS_FILE"
-        meson setup "$UDFREAD_BUILD_DIR" . \
-          --prefix="$UDFREAD_PREFIX" \
-          --cross-file="$CROSS_FILE" \
-          --default-library=static \
-          --buildtype=release 2>&1
-        ninja -C "$UDFREAD_BUILD_DIR" -j"$nproc_count" 2>&1
-        ninja -C "$UDFREAD_BUILD_DIR" install 2>&1
-      fi
+EOF
+  UDFREAD_BUILD_DIR=/work/build/udfread/build
+  mkdir -p "$UDFREAD_BUILD_DIR"
+  meson setup "$UDFREAD_BUILD_DIR" . \
+    --prefix="$UDFREAD_PREFIX" \
+    --cross-file="$CROSS_FILE" \
+    --default-library=static \
+    --buildtype=release 2>&1
+  ninja -C "$UDFREAD_BUILD_DIR" -j"$nproc_count" 2>&1
+  ninja -C "$UDFREAD_BUILD_DIR" install 2>&1
+fi
 
-      export PKG_CONFIG_PATH="$FDK_PREFIX/lib/pkgconfig:$UDFREAD_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
-      rm -rf /work/build/ffmpeg
-      mkdir -p /work/build/ffmpeg
-      cd /work/build/ffmpeg
+export PKG_CONFIG_PATH="$FDK_PREFIX/lib/pkgconfig:$UDFREAD_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+rm -rf /work/build/ffmpeg
+mkdir -p /work/build/ffmpeg
+cd /work/build/ffmpeg
 
-      configure_flags=(
-        --prefix=/work/prefix
-        --pkg-config-flags=--static
-        --extra-cflags="-I$FFBUILD_PREFIX/include -I$FDK_PREFIX/include -I$UDFREAD_PREFIX/include"
-        --extra-cxxflags="-I$FFBUILD_PREFIX/include -I$FDK_PREFIX/include -I$UDFREAD_PREFIX/include"
-        --extra-ldflags="-L$FFBUILD_PREFIX/lib -L$FDK_PREFIX/lib -L$UDFREAD_PREFIX/lib -pthread"
-        --extra-libs="-lgomp"
-        --cc="$CC" --cxx="$CXX" --ar="$AR" --ranlib="$RANLIB" --nm="$NM"
-        --enable-gpl
-        --enable-version3
-        --enable-nonfree
-        --enable-shared
-        --disable-static
-        --enable-pic
-        --disable-doc
-        --disable-debug
-        --disable-ffplay
-        --disable-w32threads
-        --enable-pthreads
-        --enable-iconv
-        --enable-zlib
-        --extra-version=Jellyfin
-        --enable-libx264 --enable-libx265 --enable-libdav1d --enable-libsvtav1
-        --enable-libvpx --enable-libaom
-        --enable-libopus --enable-libvorbis --enable-libmp3lame
-        --enable-libfdk-aac
-        --enable-libtheora --enable-libopenmpt --enable-libsoxr
-        --enable-libass --enable-libfontconfig --enable-libfreetype
-        --enable-libfribidi --enable-libharfbuzz
-        --enable-libbluray --enable-libwebp --enable-libzimg
-        --enable-chromaprint --enable-libsrt --enable-libopenjpeg --enable-libjxl
-        --enable-libzvbi
-        --enable-vulkan --enable-libplacebo --enable-libshaderc
-        --enable-ffnvcodec --enable-cuda --enable-cuda-llvm
-        --enable-cuvid --enable-nvdec --enable-nvenc
-        --enable-amf
-        --enable-libvpl
-        --enable-d3d11va --enable-dxva2 --enable-mediafoundation
-      )
+configure_flags=(
+  --prefix=/work/prefix
+  --pkg-config-flags=--static
+  --extra-cflags="-I$FFBUILD_PREFIX/include -I$FDK_PREFIX/include -I$UDFREAD_PREFIX/include"
+  --extra-cxxflags="-I$FFBUILD_PREFIX/include -I$FDK_PREFIX/include -I$UDFREAD_PREFIX/include"
+  --extra-ldflags="-L$FFBUILD_PREFIX/lib -L$FDK_PREFIX/lib -L$UDFREAD_PREFIX/lib -pthread"
+  --extra-libs="-lgomp"
+  --cc="$CC" --cxx="$CXX" --ar="$AR" --ranlib="$RANLIB" --nm="$NM"
+  --enable-gpl
+  --enable-version3
+  --enable-nonfree
+  --enable-shared
+  --disable-static
+  --enable-pic
+  --disable-doc
+  --disable-debug
+  --disable-ffplay
+  --disable-w32threads
+  --enable-pthreads
+  --enable-iconv
+  --enable-zlib
+  --extra-version=Jellyfin
+  --enable-libx264 --enable-libx265 --enable-libdav1d --enable-libsvtav1
+  --enable-libvpx --enable-libaom
+  --enable-libopus --enable-libvorbis --enable-libmp3lame
+  --enable-libfdk-aac
+  --enable-libtheora --enable-libopenmpt --enable-libsoxr
+  --enable-libass --enable-libfontconfig --enable-libfreetype
+  --enable-libfribidi --enable-libharfbuzz
+  --enable-libbluray --enable-libwebp --enable-libzimg
+  --enable-chromaprint --enable-libsrt --enable-libopenjpeg --enable-libjxl
+  --enable-libzvbi
+  --enable-vulkan --enable-libplacebo --enable-libshaderc
+  --enable-ffnvcodec --enable-cuda --enable-cuda-llvm
+  --enable-cuvid --enable-nvdec --enable-nvenc
+  --enable-amf
+  --enable-libvpl
+  --enable-d3d11va --enable-dxva2 --enable-mediafoundation
+)
 
-      # shellcheck disable=SC2206  # FFBUILD_TARGET_FLAGS is intentionally word-split.
-      target_flags=( $FFBUILD_TARGET_FLAGS )
+# shellcheck disable=SC2206  # FFBUILD_TARGET_FLAGS is intentionally word-split.
+target_flags=( $FFBUILD_TARGET_FLAGS )
 
-      if ! /work/ffmpeg-src/configure "${target_flags[@]}" "${configure_flags[@]}" \
-          > /work/build/logs/ffmpeg-configure.log 2>&1; then
-        tail -80 /work/build/logs/ffmpeg-configure.log >&2 || true
-        tail -120 ffbuild/config.log >&2 2>/dev/null || true
-        exit 1
-      fi
-      make -j"$nproc_count" > /work/build/logs/ffmpeg-make.log 2>&1
-      make install >> /work/build/logs/ffmpeg-make.log 2>&1
-    '
+if ! /work/ffmpeg-src/configure "${target_flags[@]}" "${configure_flags[@]}" \
+    > /work/build/logs/ffmpeg-configure.log 2>&1; then
+  tail -80 /work/build/logs/ffmpeg-configure.log >&2 || true
+  tail -120 ffbuild/config.log >&2 2>/dev/null || true
+  exit 1
+fi
+make -j"$nproc_count" > /work/build/logs/ffmpeg-make.log 2>&1
+make install >> /work/build/logs/ffmpeg-make.log 2>&1
+OUTER_EOF
+
+  log "Cross-building FFmpeg for Windows"
+  docker run --rm \
+    -v "$SRC_DIR":/work/ffmpeg-src \
+    -v "$FFMPEG_BUILD_DIR":/work/build \
+    -v "$WINDOWS_PREFIX":/work/prefix \
+    -v "$docker_script":/work/docker-build.sh:ro \
+    -e FDK_AAC_REF="$FDK_AAC_REF" \
+    -e FDK_PREFIX=/work/build/fdk-aac-prefix \
+    -e UDFREAD_GIT_URL="$UDFREAD_GIT_URL" \
+    -e UDFREAD_REF="$UDFREAD_REF" \
+    -e UDFREAD_PREFIX=/work/build/udfread-prefix \
+    -w /work \
+    "$IMAGE" \
+    bash /work/docker-build.sh
 
   [[ -d "$WINDOWS_PREFIX/bin" ]] || die "FFmpeg did not create $WINDOWS_PREFIX/bin"
 }
