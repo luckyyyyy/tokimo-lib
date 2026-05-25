@@ -279,7 +279,8 @@ EOF
     --prefix="$UDFREAD_PREFIX" \
     --cross-file="$CROSS_FILE" \
     --default-library=static \
-    --buildtype=release 2>&1
+    --buildtype=release \
+    -Dc_args="-fno-stack-protector -fno-stack-check -mno-stack-arg-probe" 2>&1
   ninja -C "$UDFREAD_BUILD_DIR" -j"$nproc_count" 2>&1
   ninja -C "$UDFREAD_BUILD_DIR" install 2>&1
 fi
