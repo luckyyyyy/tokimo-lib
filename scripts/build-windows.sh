@@ -245,7 +245,7 @@ if [[ ! -f "$FDK_PREFIX/lib/libfdk-aac.a" ]]; then
 fi
 
 # Build libudfread (standalone static lib for tokimo-package-iso FFI).
-UDFREAD_PREFIX=/work/build/udfread-prefix
+UDFREAD_PREFIX=/work/prefix
 if [[ ! -f "$UDFREAD_PREFIX/lib/libudfread.a" ]]; then
   mkdir -p /work/build/udfread
   if [[ ! -d /work/build/udfread/src/.git ]]; then
@@ -356,7 +356,7 @@ OUTER_EOF
     -e FDK_PREFIX=/work/build/fdk-aac-prefix \
     -e UDFREAD_GIT_URL="$UDFREAD_GIT_URL" \
     -e UDFREAD_REF="$UDFREAD_REF" \
-    -e UDFREAD_PREFIX=/work/build/udfread-prefix \
+    -e UDFREAD_PREFIX=/work/prefix \
     -w /work \
     "$IMAGE" \
     bash /work/docker-build.sh
