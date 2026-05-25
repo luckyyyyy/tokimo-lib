@@ -342,8 +342,12 @@ make -j"$nproc_count" > /work/build/logs/ffmpeg-make.log 2>&1
 make install >> /work/build/logs/ffmpeg-make.log 2>&1
 OUTER_EOF
 
+  if ! docker info -f '{{println .SecurityOptions}}' 2>/dev/null | grep -q rootless; then
+    uidargs=( -u "$(id -u):$(id -g)" )
+  fi
+
   log "Cross-building FFmpeg for Windows"
-  docker run --rm \
+  docker run --rm "${uidargs[@]}" \
     -v "$SRC_DIR":/work/ffmpeg-src \
     -v "$FFMPEG_BUILD_DIR":/work/build \
     -v "$WINDOWS_PREFIX":/work/prefix \
