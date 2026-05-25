@@ -118,6 +118,16 @@ resolve_fdk_aac_source() {
   [[ -n "$FDK_AAC_REF" ]] || die "missing fdk-aac.commit in $COMPONENTS_FILE"
 }
 
+resolve_udfread_source() {
+  local configured_url configured_ref
+
+  configured_url="$(toml_value udfread upstream "$COMPONENTS_FILE" || true)"
+  configured_ref="$(toml_value udfread commit "$COMPONENTS_FILE" || true)"
+  UDFREAD_GIT_URL="${UDFREAD_GIT_URL:-${configured_url:-https://code.videolan.org/videolan/libudfread.git}}"
+  UDFREAD_REF="${UDFREAD_REF:-$configured_ref}"
+  [[ -n "$UDFREAD_REF" ]] || die "missing udfread.commit in $COMPONENTS_FILE"
+}
+
 verify_libvips_windows_checksum() {
   local expected actual
 
@@ -191,10 +201,146 @@ apply_debian_patches() {
 
 build_ffmpeg_windows() {
   local uidargs=()
+  local docker_script="$BUILD_ROOT/docker-build.sh"
 
   mkdir -p "$FFMPEG_BUILD_DIR" "$WINDOWS_PREFIX"
   log "Pulling $IMAGE"
   docker pull "$IMAGE"
+
+  # Write the Docker build script to a file to avoid single-quote
+  # escaping issues with bash -c '...' containing heredocs.
+  cat > "$docker_script" <<'OUTER_EOF'
+#!/usr/bin/env bash
+exec 2>&1
+set -eo pipefail
+export CC="${CC:-${FFBUILD_TOOLCHAIN}-gcc}"
+export CXX="${CXX:-${FFBUILD_TOOLCHAIN}-g++}"
+export AR="${AR:-${FFBUILD_TOOLCHAIN}-ar}"
+export RANLIB="${RANLIB:-${FFBUILD_TOOLCHAIN}-ranlib}"
+export NM="${NM:-${FFBUILD_TOOLCHAIN}-nm}"
+
+nproc_count="$(nproc)"
+mkdir -p /work/build/logs
+
+if [[ ! -f "$FDK_PREFIX/lib/libfdk-aac.a" ]]; then
+  mkdir -p /work/build/fdk-aac
+  if [[ ! -d /work/build/fdk-aac/src/.git ]]; then
+    git clone --filter=blob:none https://github.com/mstorsjo/fdk-aac.git /work/build/fdk-aac/src \
+      > /work/build/logs/fdk-aac-clone.log 2>&1
+  fi
+  cd /work/build/fdk-aac/src
+  git fetch --tags origin > /work/build/logs/fdk-aac-fetch.log 2>&1
+  git checkout "$FDK_AAC_REF" > /work/build/logs/fdk-aac-checkout.log 2>&1
+  ./autogen.sh > /work/build/logs/fdk-aac-autogen.log 2>&1
+  ./configure \
+    --prefix="$FDK_PREFIX" \
+    --host="$FFBUILD_TOOLCHAIN" \
+    --disable-shared \
+    --enable-static \
+    --with-pic \
+    --disable-example \
+    > /work/build/logs/fdk-aac-configure.log 2>&1
+  make -j"$nproc_count" > /work/build/logs/fdk-aac-make.log 2>&1
+  make install >> /work/build/logs/fdk-aac-make.log 2>&1
+fi
+
+# Build libudfread (standalone static lib for tokimo-package-iso FFI).
+UDFREAD_PREFIX=/work/build/udfread-prefix
+if [[ ! -f "$UDFREAD_PREFIX/lib/libudfread.a" ]]; then
+  mkdir -p /work/build/udfread
+  if [[ ! -d /work/build/udfread/src/.git ]]; then
+    git clone "$UDFREAD_GIT_URL" /work/build/udfread/src 2>&1
+  fi
+  cd /work/build/udfread/src
+  git fetch --tags origin > /work/build/logs/udfread-fetch.log 2>&1
+  git checkout "$UDFREAD_REF" 2>&1
+  CROSS_FILE=/work/build/udfread/cross.meson
+  cat > "$CROSS_FILE" <<EOF
+[binaries]
+c = '${CC}'
+cpp = '${CXX}'
+ar = '${AR}'
+ranlib = '${RANLIB}'
+nm = '${NM}'
+strip = 'strip'
+
+[host_machine]
+system = 'windows'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
+
+[properties]
+needs_exe_wrapper = true
+EOF
+  UDFREAD_BUILD_DIR=/work/build/udfread/build
+  mkdir -p "$UDFREAD_BUILD_DIR"
+  meson setup "$UDFREAD_BUILD_DIR" . \
+    --prefix="$UDFREAD_PREFIX" \
+    --cross-file="$CROSS_FILE" \
+    --default-library=static \
+    --buildtype=release 2>&1
+  ninja -C "$UDFREAD_BUILD_DIR" -j"$nproc_count" 2>&1
+  ninja -C "$UDFREAD_BUILD_DIR" install 2>&1
+fi
+
+export PKG_CONFIG_PATH="$FDK_PREFIX/lib/pkgconfig:$UDFREAD_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+rm -rf /work/build/ffmpeg
+mkdir -p /work/build/ffmpeg
+cd /work/build/ffmpeg
+
+configure_flags=(
+  --prefix=/work/prefix
+  --pkg-config-flags=--static
+  --extra-cflags="-I$FFBUILD_PREFIX/include -I$FDK_PREFIX/include -I$UDFREAD_PREFIX/include"
+  --extra-cxxflags="-I$FFBUILD_PREFIX/include -I$FDK_PREFIX/include -I$UDFREAD_PREFIX/include"
+  --extra-ldflags="-L$FFBUILD_PREFIX/lib -L$FDK_PREFIX/lib -L$UDFREAD_PREFIX/lib -pthread"
+  --extra-libs="-lgomp"
+  --cc="$CC" --cxx="$CXX" --ar="$AR" --ranlib="$RANLIB" --nm="$NM"
+  --enable-gpl
+  --enable-version3
+  --enable-nonfree
+  --enable-shared
+  --disable-static
+  --enable-pic
+  --disable-doc
+  --disable-debug
+  --disable-ffplay
+  --disable-w32threads
+  --enable-pthreads
+  --enable-iconv
+  --enable-zlib
+  --extra-version=Jellyfin
+  --enable-libx264 --enable-libx265 --enable-libdav1d --enable-libsvtav1
+  --enable-libvpx --enable-libaom
+  --enable-libopus --enable-libvorbis --enable-libmp3lame
+  --enable-libfdk-aac
+  --enable-libtheora --enable-libopenmpt --enable-libsoxr
+  --enable-libass --enable-libfontconfig --enable-libfreetype
+  --enable-libfribidi --enable-libharfbuzz
+  --enable-libbluray --enable-libwebp --enable-libzimg
+  --enable-chromaprint --enable-libsrt --enable-libopenjpeg --enable-libjxl
+  --enable-libzvbi
+  --enable-vulkan --enable-libplacebo --enable-libshaderc
+  --enable-ffnvcodec --enable-cuda --enable-cuda-llvm
+  --enable-cuvid --enable-nvdec --enable-nvenc
+  --enable-amf
+  --enable-libvpl
+  --enable-d3d11va --enable-dxva2 --enable-mediafoundation
+)
+
+# shellcheck disable=SC2206  # FFBUILD_TARGET_FLAGS is intentionally word-split.
+target_flags=( $FFBUILD_TARGET_FLAGS )
+
+if ! /work/ffmpeg-src/configure "${target_flags[@]}" "${configure_flags[@]}" \
+    > /work/build/logs/ffmpeg-configure.log 2>&1; then
+  tail -80 /work/build/logs/ffmpeg-configure.log >&2 || true
+  tail -120 ffbuild/config.log >&2 2>/dev/null || true
+  exit 1
+fi
+make -j"$nproc_count" > /work/build/logs/ffmpeg-make.log 2>&1
+make install >> /work/build/logs/ffmpeg-make.log 2>&1
+OUTER_EOF
 
   if ! docker info -f '{{println .SecurityOptions}}' 2>/dev/null | grep -q rootless; then
     uidargs=( -u "$(id -u):$(id -g)" )
@@ -205,104 +351,15 @@ build_ffmpeg_windows() {
     -v "$SRC_DIR":/work/ffmpeg-src \
     -v "$FFMPEG_BUILD_DIR":/work/build \
     -v "$WINDOWS_PREFIX":/work/prefix \
+    -v "$docker_script":/work/docker-build.sh:ro \
     -e FDK_AAC_REF="$FDK_AAC_REF" \
     -e FDK_PREFIX=/work/build/fdk-aac-prefix \
+    -e UDFREAD_GIT_URL="$UDFREAD_GIT_URL" \
+    -e UDFREAD_REF="$UDFREAD_REF" \
+    -e UDFREAD_PREFIX=/work/build/udfread-prefix \
     -w /work \
     "$IMAGE" \
-    bash -eo pipefail -c '
-      set -euo pipefail
-      : "${FFBUILD_PREFIX:?image must define FFBUILD_PREFIX}"
-      : "${FFBUILD_TOOLCHAIN:?image must define FFBUILD_TOOLCHAIN}"
-      : "${FFBUILD_TARGET_FLAGS:?image must define FFBUILD_TARGET_FLAGS}"
-      : "${CC:?image must define CC}"
-      : "${CXX:?image must define CXX}"
-      : "${AR:?image must define AR}"
-      : "${RANLIB:?image must define RANLIB}"
-      : "${NM:?image must define NM}"
-      : "${FDK_PREFIX:?must be set}"
-
-      nproc_count="$(nproc)"
-      mkdir -p /work/build/logs
-
-      if [[ ! -f "$FDK_PREFIX/lib/libfdk-aac.a" ]]; then
-        mkdir -p /work/build/fdk-aac
-        if [[ ! -d /work/build/fdk-aac/src/.git ]]; then
-          git clone --filter=blob:none https://github.com/mstorsjo/fdk-aac.git /work/build/fdk-aac/src \
-            > /work/build/logs/fdk-aac-clone.log 2>&1
-        fi
-        cd /work/build/fdk-aac/src
-        git fetch --tags origin > /work/build/logs/fdk-aac-fetch.log 2>&1
-        git checkout "$FDK_AAC_REF" > /work/build/logs/fdk-aac-checkout.log 2>&1
-        ./autogen.sh > /work/build/logs/fdk-aac-autogen.log 2>&1
-        ./configure \
-          --prefix="$FDK_PREFIX" \
-          --host="$FFBUILD_TOOLCHAIN" \
-          --disable-shared \
-          --enable-static \
-          --with-pic \
-          --disable-example \
-          > /work/build/logs/fdk-aac-configure.log 2>&1
-        make -j"$nproc_count" > /work/build/logs/fdk-aac-make.log 2>&1
-        make install >> /work/build/logs/fdk-aac-make.log 2>&1
-      fi
-
-      export PKG_CONFIG_PATH="$FDK_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
-      rm -rf /work/build/ffmpeg
-      mkdir -p /work/build/ffmpeg
-      cd /work/build/ffmpeg
-
-      configure_flags=(
-        --prefix=/work/prefix
-        --pkg-config-flags=--static
-        --extra-cflags="-I$FFBUILD_PREFIX/include -I$FDK_PREFIX/include"
-        --extra-cxxflags="-I$FFBUILD_PREFIX/include -I$FDK_PREFIX/include"
-        --extra-ldflags="-L$FFBUILD_PREFIX/lib -L$FDK_PREFIX/lib -pthread"
-        --extra-libs="-lgomp"
-        --cc="$CC" --cxx="$CXX" --ar="$AR" --ranlib="$RANLIB" --nm="$NM"
-        --enable-gpl
-        --enable-version3
-        --enable-nonfree
-        --enable-shared
-        --disable-static
-        --enable-pic
-        --disable-doc
-        --disable-debug
-        --disable-ffplay
-        --disable-w32threads
-        --enable-pthreads
-        --enable-iconv
-        --enable-zlib
-        --extra-version=Jellyfin
-        --enable-libx264 --enable-libx265 --enable-libdav1d --enable-libsvtav1
-        --enable-libvpx --enable-libaom
-        --enable-libopus --enable-libvorbis --enable-libmp3lame
-        --enable-libfdk-aac
-        --enable-libtheora --enable-libopenmpt --enable-libsoxr
-        --enable-libass --enable-libfontconfig --enable-libfreetype
-        --enable-libfribidi --enable-libharfbuzz
-        --enable-libbluray --enable-libwebp --enable-libzimg
-        --enable-chromaprint --enable-libsrt --enable-libopenjpeg --enable-libjxl
-        --enable-libzvbi
-        --enable-vulkan --enable-libplacebo --enable-libshaderc
-        --enable-ffnvcodec --enable-cuda --enable-cuda-llvm
-        --enable-cuvid --enable-nvdec --enable-nvenc
-        --enable-amf
-        --enable-libvpl
-        --enable-d3d11va --enable-dxva2 --enable-mediafoundation
-      )
-
-      # shellcheck disable=SC2206  # FFBUILD_TARGET_FLAGS is intentionally word-split.
-      target_flags=( $FFBUILD_TARGET_FLAGS )
-
-      if ! /work/ffmpeg-src/configure "${target_flags[@]}" "${configure_flags[@]}" \
-          > /work/build/logs/ffmpeg-configure.log 2>&1; then
-        tail -80 /work/build/logs/ffmpeg-configure.log >&2 || true
-        tail -120 ffbuild/config.log >&2 2>/dev/null || true
-        exit 1
-      fi
-      make -j"$nproc_count" > /work/build/logs/ffmpeg-make.log 2>&1
-      make install >> /work/build/logs/ffmpeg-make.log 2>&1
-    '
+    bash /work/docker-build.sh
 
   [[ -d "$WINDOWS_PREFIX/bin" ]] || die "FFmpeg did not create $WINDOWS_PREFIX/bin"
 }
@@ -485,6 +542,21 @@ relocate_ffmpeg_import_libs() {
   done
 }
 
+# Rename cross-compiled static libs to MSVC naming convention.
+# meson/cmake cross-builds produce libfoo.a; MSVC link.exe expects foo.lib.
+normalize_static_libs() {
+  local a_file lib_name
+
+  for a_file in "$INSTALL_DIR"/lib/lib*.a; do
+    [[ -f "$a_file" ]] || continue
+    lib_name="$(basename "$a_file")"
+    lib_name="${lib_name#lib}"        # strip "lib" prefix
+    lib_name="${lib_name%.a}.lib"     # replace .a with .lib
+    [[ -f "$INSTALL_DIR/lib/$lib_name" ]] && continue  # don't overwrite existing .lib
+    mv -- "$a_file" "$INSTALL_DIR/lib/$lib_name"
+  done
+}
+
 bundle_install_tree() {
   rm -rf -- "$INSTALL_DIR/bin" "$INSTALL_DIR/lib" "$INSTALL_DIR/include" "$INSTALL_DIR/META.txt" "$TARBALL"
   mkdir -p -- "$INSTALL_DIR" "$INSTALL_DIR/bin" "$INSTALL_DIR/lib" "$INSTALL_DIR/include"
@@ -492,6 +564,7 @@ bundle_install_tree() {
   copy_prefix_dir_to_install lib
   copy_prefix_dir_to_install include
   relocate_ffmpeg_import_libs
+  normalize_static_libs
   assert_unique_basenames
   assert_unique_glib_family
   write_meta
@@ -505,6 +578,7 @@ main() {
   resolve_ffmpeg_source
   resolve_libvips_source
   resolve_fdk_aac_source
+  resolve_udfread_source
 
   log "Using FFmpeg source $FFMPEG_GIT_URL ($FFMPEG_REF)"
   sync_git_repo "$FFMPEG_GIT_URL" "$FFMPEG_REF" "$SRC_DIR"
