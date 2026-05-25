@@ -265,7 +265,26 @@ build_ffmpeg_windows() {
         git checkout "$UDFREAD_REF" 2>&1
         # Generate a meson cross file from the BtbN toolchain env vars.
         CROSS_FILE=/work/build/udfread/cross.meson
-        echo 'W2JpbmFyaWVzXQpjID0gQ0NQTEFDRUhPTERFUgpjcHAgPSBDWFhQTEFDRUhPTERFUgphciA9IEFSUExBQ0VIT0xERVIKcmFubGliID0gUkFOTElCUExBQ0VIT0xERVIKbm0gPSBOTVBMQUNFSE9MREVSCnN0cmlwID0gc3RyaXAKCltob3N0X21hY2hpbmVdCnN5c3RlbSA9IHdpbmRvd3MKY3B1X2ZhbWlseSA9IHg4Nl82NApjcHUgPSB4ODZfNjQKZW5kaWFuID0gbGl0dGxlCgpbcHJvcGVydGllc10KbmVlZHNfZXhlX3dyYXBwZXIgPSB0cnVlCg==' | base64 -d | sed "s/CCPLACEHOLDER/'${CC}'/;s/CXXPLACEHOLDER/'${CXX}'/;s/ARPLACEHOLDER/'${AR}'/;s/RANLIBPLACEHOLDER/'${RANLIB}'/;s/NMPLACEHOLDER/'${NM}'/" > "$CROSS_FILE"
+        /bin/sh -c "
+cat > $CROSS_FILE <<ENDFILE
+[binaries]
+c = '${CC}'
+cpp = '${CXX}'
+ar = '${AR}'
+ranlib = '${RANLIB}'
+nm = '${NM}'
+strip = 'strip'
+
+[host_machine]
+system = 'windows'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
+
+[properties]
+needs_exe_wrapper = true
+ENDFILE
+"
         echo "strip = 'strip'" >> "$CROSS_FILE"
         echo "" >> "$CROSS_FILE"
         echo "[host_machine]" >> "$CROSS_FILE"
