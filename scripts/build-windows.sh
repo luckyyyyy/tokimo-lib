@@ -265,6 +265,7 @@ build_ffmpeg_windows() {
         git checkout "$UDFREAD_REF" 2>&1
         # Generate a meson cross file from the BtbN toolchain env vars.
         CROSS_FILE=/work/build/udfread/cross.meson
+        rm -f "$CROSS_FILE"
         export CC CXX AR RANLIB NM
         envsubst > "$CROSS_FILE" <<'ENDFILE'
 [binaries]
